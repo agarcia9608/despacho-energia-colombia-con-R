@@ -1,0 +1,322 @@
+---
+# Configuración del documento
+title: "Despacho de Energía Eléctrica"
+subtitle: "Análisis Despacho de Energía Eléctrica en Colombia"
+# date: "`r Sys.Date()`"
+# author: "Abraham García"
+output:
+  html_document: 
+    fig_height: 7
+    fig_width: 10
+    highlight: tango
+    keep_md: no #yes
+    number_sections: no
+    theme: paper #cerulean
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: yes #no
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+  word_document:
+    toc: yes
+    toc_depth: '4'
+editor_options:
+  
+  chunk_output_type: console
+---
+
+Este informe analiza el comportamiento del despacho de energía eléctrica en Colombia durante los últimos siete años, abarcando el período comprendido entre abril de 2018 y abril de 2025.
+A continuación, se presenta un análisis descriptivo de las siguientes variables:
+
+- Demanda [GWh/día]
+- Aportes Hidrológicos [GWh/día]
+- Embalses [GWh]
+- Despacho de energía eléctrica [GWh/día]
+- Precio de bolsa [COP/kWh]
+
+```{r include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+
+#⚡Recuerde instalar las librerias si no lo ha hecho antes.
+# con install.packages
+#install.packages("tidyverse")
+
+library(openxlsx)
+library(tidyverse)
+library(janitor)
+library(flextable)
+library(kableExtra)
+library(scales)
+library(ggplot2)
+library(gganimate)
+library(png)
+library(gifski)
+library(plotly)
+library(lazyeval)
+
+# Lectura de los dataset
+df_variables_despacho <- read.xlsx("data/despacho_energia_colombia.xlsx",
+                                   sheet = "VariablesDespacho")
+
+df_despacho_energia <- read.xlsx("data/despacho_energia_colombia.xlsx",
+                                 sheet = "DespachoEnergia")
+
+```
+
+```{r}
+
+# Filtrar ambos conjuntos para que solo queden las fechas que son comunes a ambos dataset
+fechas_comunes <- intersect(df_variables_despacho$fecha, df_despacho_energia$fecha)
+
+df_variables_despacho <- df_variables_despacho[df_variables_despacho$fecha %in% fechas_comunes,]
+df_despacho_energia <- df_despacho_energia[df_despacho_energia$fecha %in% fechas_comunes,]
+
+# Formatear las columnas de fechas
+
+df_variables_despacho <- df_variables_despacho %>% 
+  mutate(fecha = as.Date(df_variables_despacho$fecha, origin = "1899-12-30"))
+
+df_despacho_energia <- df_despacho_energia %>% 
+  mutate(fecha = as.Date(df_despacho_energia$fecha, origin = "1899-12-30"),
+         anio = as.numeric(format(fecha, "%Y")),
+         mes = as.numeric(format(fecha,"%m")),
+         dia = as.numeric(format(fecha, "%d")))
+
+```
+
+
+# Histórico de Despacho por Tecnología
+```{r}
+# Gráfica de Despacho por Tecnologia
+g1 <- ggplot(df_despacho_energia) +
+  geom_line(aes(fecha,despachoDiario, color=combustiblePrimario), lwd=1, 
+            show.legend = TRUE) +
+  scale_color_brewer(palette = "Set2")
+
+```
+
+```{r eval=FALSE, include=FALSE}
+# Animación con gif
+
+anim <- g1 + transition_reveal(df_despacho_energia$fecha)
+
+animate(anim, renderer=gifski_renderer(), height=500, width=800)
+anim_save("img_despacho_x_tecnologia.gif")
+
+```
+
+```{r}
+# Generación de gráfica interactiva
+g1_plotly <- ggplotly(g1) %>%
+  layout(
+    xaxis = list(
+      rangeselector = list(
+        buttons = list(
+          list(count = 1, label = "1a", step = "year", stepmode = "backward"),
+          list(count = 3, label = "3a", step = "year", stepmode = "backward"),
+          list(step = "all", label = "Todo")
+        )
+      ),
+      rangeslider = list(visible = TRUE),
+      title = "Fecha"
+    ),
+    yaxis = list(title = "Despacho Diario (MW)")
+  )
+
+g1_plotly
+```
+
+
+
+# Variables Hidrólogicas vs Precio de Bolsa Promedio
+
+```{r eval=FALSE, include=FALSE}
+
+# Función auxiliar para crear frames
+accumulate_by <- function(dat, var) {
+  var <- lazyeval::f_eval(var, dat)
+  lvls <- plotly:::getLevels(var)
+  dats <- lapply(seq_along(lvls), function(x) {
+    cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
+  })
+  dplyr::bind_rows(dats)
+}
+
+# Asegúrate que la columna fecha sea Date o POSIXct
+df <- df_variables_despacho %>%
+  mutate(fecha = as.Date(fecha)) %>%
+  arrange(fecha)
+
+# Preparar datos para animación
+df_anim <- df %>% accumulate_by(~fecha)
+
+# Crear figura con múltiples trazas
+fig <- plot_ly()
+
+# Trazas en eje y principal
+fig <- fig %>%
+  add_trace(data = df_anim,
+            x = ~fecha,
+            y = ~aportesPorcentaje,
+            name = "Aportes (%)",
+            type = 'scatter',
+            mode = 'lines',
+            frame = ~frame,
+            line = list(color = "#1f77b4"),
+            yaxis = "y1") %>%
+  add_trace(data = df_anim,
+            x = ~fecha,
+            y = ~embalsePorcentaje,
+            name = "Embalse (%)",
+            type = 'scatter',
+            mode = 'lines',
+            frame = ~frame,
+            line = list(color = "#2ca02c"),
+            yaxis = "y1")
+
+# Traza en segundo eje
+fig <- fig %>%
+  add_trace(data = df_anim,
+            x = ~fecha,
+            y = ~precioBolsaProm,
+            name = "Precio Bolsa ($)",
+            type = 'scatter',
+            mode = 'lines',
+            frame = ~frame,
+            line = list(color = "#d62728"),
+            yaxis = "y2")
+
+# Layout con segundo eje
+fig <- fig %>%
+  layout(
+    title = "Comportamiento Energético Diario",
+    xaxis = list(title = "Fecha"),
+    yaxis = list(title = "Aportes / Embalse (%)"),
+    yaxis2 = list(title = "Precio Bolsa ($/kWh)",
+                  overlaying = "y",
+                  side = "right",
+                  showgrid = FALSE),
+    legend = list(x = 0.05, y = 1.1),
+    updatemenus = list(
+      list(
+        type = "buttons",
+        showactive = FALSE,
+        buttons = list(
+          list(label = "Play",
+               method = "animate",
+               args = list(NULL, list(frame = list(duration = 100, redraw = FALSE),
+                                      transition = list(duration = 0),
+                                      fromcurrent = TRUE))),
+          list(label = "Pause",
+               method = "animate",
+               args = list(NULL, list(mode = "immediate",
+                                      frame = list(duration = 0, redraw = FALSE),
+                                      transition = list(duration = 0))))
+        ),
+        x = 1, xanchor = "right", y = 0, yanchor = "bottom"
+      )
+    )
+  ) %>%
+  animation_slider(hide = TRUE) %>%
+  animation_opts(frame = 100, transition = 0, redraw = FALSE)
+
+fig
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+library(plotly)
+library(dplyr)
+library(lubridate)
+library(lazyeval)  # Necesario para accumulate_by
+
+# Función auxiliar para generar los frames
+accumulate_by <- function(dat, var) {
+  var <- lazyeval::f_eval(var, dat)
+  lvls <- plotly:::getLevels(var)
+  dats <- lapply(seq_along(lvls), function(x) {
+    cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
+  })
+  dplyr::bind_rows(dats)
+}
+
+# Preparar los datos
+df <- df_variables_despacho %>%
+  mutate(fecha = as.Date(fecha)) %>%
+  arrange(fecha)
+
+# Generar los frames para la animación
+df_anim <- df %>% accumulate_by(~fecha)
+
+# Crear la figura
+fig <- plot_ly()
+
+fig <- fig %>%
+  add_trace(data = df_anim,
+            x = ~fecha,
+            y = ~aportesPorcentaje,
+            name = "Aportes (%)",
+            type = 'scatter',
+            mode = 'lines',
+            frame = ~frame,
+            line = list(color = "#1f77b4")) %>%
+  add_trace(data = df_anim,
+            x = ~fecha,
+            y = ~embalsePorcentaje,
+            name = "Embalse (%)",
+            type = 'scatter',
+            mode = 'lines',
+            frame = ~frame,
+            line = list(color = "#2ca02c")) %>%
+  add_trace(data = df_anim,
+            x = ~fecha,
+            y = ~precioBolsaProm,
+            name = "Precio Bolsa",
+            type = 'scatter',
+            mode = 'lines',
+            frame = ~frame,
+            line = list(color = "#d62728"))
+
+# Configurar layout y controles
+fig <- fig %>%
+  layout(
+    title = "Comportamiento de Variables Energéticas",
+    xaxis = list(title = "Fecha"),
+    yaxis = list(title = "Valor"),
+    legend = list(x = 0.05, y = 1.1),
+    updatemenus = list(
+      list(
+        type = "buttons",
+        showactive = FALSE,
+        buttons = list(
+          list(label = "Play",
+               method = "animate",
+               args = list(NULL, list(frame = list(duration = 100, redraw = FALSE),
+                                      transition = list(duration = 0),
+                                      fromcurrent = TRUE))),
+          list(label = "Pause",
+               method = "animate",
+               args = list(NULL, list(mode = "immediate",
+                                      frame = list(duration = 0, redraw = FALSE),
+                                      transition = list(duration = 0))))
+        ),
+        x = 1, xanchor = "right", y = 0, yanchor = "bottom"
+      )
+    )
+  ) %>%
+  animation_slider(hide = TRUE) %>%
+  animation_opts(frame = 100, transition = 0, redraw = FALSE)
+
+fig
+
+
+```
+
