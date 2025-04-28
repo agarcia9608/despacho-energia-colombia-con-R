@@ -17,6 +17,7 @@ output:
     toc_float:
       collapsed: yes #no
       smooth_scroll: yes
+  #runtime: shiny
   pdf_document:
     toc: yes
     toc_depth: '4'
@@ -55,20 +56,30 @@ library(flextable)
 library(kableExtra)
 library(scales)
 library(ggplot2)
-library(gganimate)
-library(png)
-library(gifski)
 library(plotly)
-library(lazyeval)
+library(dplyr)
+library(forcats)
 
 # Lectura de los dataset
-df_variables_despacho <- read.xlsx("data/despacho_energia_colombia.xlsx",
-                                   sheet = "VariablesDespacho")
+df_variables_despacho <- read.xlsx("data/despacho_energia_colombia.xlsx",sheet = "VariablesDespacho")
 
-df_despacho_energia <- read.xlsx("data/despacho_energia_colombia.xlsx",
-                                 sheet = "DespachoEnergia")
+df_despacho_energia <- read.xlsx("data/despacho_energia_colombia.xlsx",sheet = "DespachoEnergia")
 
 ```
+
+```{r}
+# Parametros de configuración
+
+colores_personalizados <- c(
+  "SOL" = "#FFD700",
+  "MENORES" = "#696969",
+  "LIQUIDOS" = "#e31a1c",
+  "GAS" = "#32CD32",
+  "CARBON" = "#FF8C00",
+  "AGUA" = "#00CED1"
+)
+```
+
 
 ```{r}
 
@@ -92,231 +103,134 @@ df_despacho_energia <- df_despacho_energia %>%
 ```
 
 
-# Histórico de Despacho por Tecnología
 ```{r}
-# Gráfica de Despacho por Tecnologia
-g1 <- ggplot(df_despacho_energia) +
-  geom_line(aes(fecha,despachoDiario, color=combustiblePrimario), lwd=1, 
-            show.legend = TRUE) +
-  scale_color_brewer(palette = "Set2")
+# 2. Preparar los datos
+df_plot <- df_despacho_energia %>%
+  filter(anio == 2024) %>%
+  mutate(combustiblePrimario = fct_relevel(
+    combustiblePrimario,
+    "SOL", "MENORES", "LIQUIDOS", "GAS", "CARBON", "AGUA"
+  ))
 
-```
+# 3. Construir el gráfico en el orden correcto (de abajo hacia arriba)
+orden_correcto <- rev(names(colores_personalizados))  # <- Invertir el orden para apilado correcto
 
-```{r eval=FALSE, include=FALSE}
-# Animación con gif
+g1_plotly <- plot_ly()
 
-anim <- g1 + transition_reveal(df_despacho_energia$fecha)
+for (combustible in orden_correcto) {
+  df_temp <- df_plot %>% filter(combustiblePrimario == combustible)
+  
+  g1_plotly <- g1_plotly %>%
+    add_trace(
+      data = df_temp,
+      x = ~fecha,
+      y = ~despachoDiario,
+      type = 'scatter',
+      mode = 'none',
+      stackgroup = 'one',
+      fillcolor = colores_personalizados[[combustible]],
+      name = combustible
+    )
+}
 
-animate(anim, renderer=gifski_renderer(), height=500, width=800)
-anim_save("img_despacho_x_tecnologia.gif")
-
-```
-
-```{r}
-# Generación de gráfica interactiva
-g1_plotly <- ggplotly(g1) %>%
+# 4. Personalizar layout
+g1_plotly <- g1_plotly %>%
   layout(
     xaxis = list(
       rangeselector = list(
         buttons = list(
-          list(count = 1, label = "1a", step = "year", stepmode = "backward"),
-          list(count = 3, label = "3a", step = "year", stepmode = "backward"),
+          list(count = 3, label = "3M", step = "month", stepmode = "backward"),
+          list(count = 6, label = "6M", step = "month", stepmode = "backward"),
+          list(count = 9, label = "9M", step = "month", stepmode = "backward"),
           list(step = "all", label = "Todo")
         )
       ),
       rangeslider = list(visible = TRUE),
       title = "Fecha"
     ),
-    yaxis = list(title = "Despacho Diario (MW)")
+    yaxis = list(title = "Despacho Diario (MW)"),
+    hovermode = "x unified"  # Opcional: para que todos los datos salgan alineados en el hover
   )
 
+# 5. Mostrar gráfico
 g1_plotly
+
+
 ```
 
 
 
-# Variables Hidrólogicas vs Precio de Bolsa Promedio
+# Gráfica Animada e interactiva
+```{r}
 
-```{r eval=FALSE, include=FALSE}
+df_aportes <- df_variables_despacho %>%
+  mutate(variableEnergia="aportesPorcentaje", valor = aportesPorcentaje) %>% 
+  select(fecha, anio, mes, dia, festivo, diaSemana,variableEnergia, valor)
 
-# Función auxiliar para crear frames
+df_embalse <- df_variables_despacho %>%
+  mutate(variableEnergia="embalsePorcentaje", valor = embalsePorcentaje) %>% 
+  select(fecha, anio, mes, dia, festivo, diaSemana,variableEnergia, valor)
+
+df_hidrologia <- bind_rows(df_aportes, df_embalse)
+
+# Función accumulate_by corregida
 accumulate_by <- function(dat, var) {
-  var <- lazyeval::f_eval(var, dat)
-  lvls <- plotly:::getLevels(var)
+  var_expr <- rlang::enquo(var)
+  var_sym <- rlang::get_expr(var_expr)
+  
+  if (rlang::is_formula(var_sym)) {
+    var_sym <- rlang::f_rhs(var_sym)
+  }
+  
+  var_name <- rlang::as_name(var_sym)
+  
+  lvls <- sort(unique(dat[[var_name]]))
   dats <- lapply(seq_along(lvls), function(x) {
-    cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
+    cbind(dat[dat[[var_name]] %in% lvls[seq_len(x)], ], frame = lvls[[x]])
   })
   dplyr::bind_rows(dats)
 }
 
-# Asegúrate que la columna fecha sea Date o POSIXct
-df <- df_variables_despacho %>%
-  mutate(fecha = as.Date(fecha)) %>%
-  arrange(fecha)
+# Construcción
+fig_raw <- df_hidrologia %>%
+  filter(anio == 2024, variableEnergia %in% c("aportesPorcentaje", "embalsePorcentaje")) %>%
+  accumulate_by(~fecha)
 
-# Preparar datos para animación
-df_anim <- df %>% accumulate_by(~fecha)
+# Obtener límites del eje x e y
+x_min <- min(fig_raw$fecha, na.rm = TRUE)
+x_max <- max(fig_raw$fecha, na.rm = TRUE)
+y_min <- min(fig_raw$valor, na.rm = TRUE)
+y_max <- max(fig_raw$valor, na.rm = TRUE)
 
-# Crear figura con múltiples trazas
-fig <- plot_ly()
-
-# Trazas en eje y principal
-fig <- fig %>%
-  add_trace(data = df_anim,
-            x = ~fecha,
-            y = ~aportesPorcentaje,
-            name = "Aportes (%)",
-            type = 'scatter',
-            mode = 'lines',
-            frame = ~frame,
-            line = list(color = "#1f77b4"),
-            yaxis = "y1") %>%
-  add_trace(data = df_anim,
-            x = ~fecha,
-            y = ~embalsePorcentaje,
-            name = "Embalse (%)",
-            type = 'scatter',
-            mode = 'lines',
-            frame = ~frame,
-            line = list(color = "#2ca02c"),
-            yaxis = "y1")
-
-# Traza en segundo eje
-fig <- fig %>%
-  add_trace(data = df_anim,
-            x = ~fecha,
-            y = ~precioBolsaProm,
-            name = "Precio Bolsa ($)",
-            type = 'scatter',
-            mode = 'lines',
-            frame = ~frame,
-            line = list(color = "#d62728"),
-            yaxis = "y2")
-
-# Layout con segundo eje
-fig <- fig %>%
-  layout(
-    title = "Comportamiento Energético Diario",
-    xaxis = list(title = "Fecha"),
-    yaxis = list(title = "Aportes / Embalse (%)"),
-    yaxis2 = list(title = "Precio Bolsa ($/kWh)",
-                  overlaying = "y",
-                  side = "right",
-                  showgrid = FALSE),
-    legend = list(x = 0.05, y = 1.1),
-    updatemenus = list(
-      list(
-        type = "buttons",
-        showactive = FALSE,
-        buttons = list(
-          list(label = "Play",
-               method = "animate",
-               args = list(NULL, list(frame = list(duration = 100, redraw = FALSE),
-                                      transition = list(duration = 0),
-                                      fromcurrent = TRUE))),
-          list(label = "Pause",
-               method = "animate",
-               args = list(NULL, list(mode = "immediate",
-                                      frame = list(duration = 0, redraw = FALSE),
-                                      transition = list(duration = 0))))
-        ),
-        x = 1, xanchor = "right", y = 0, yanchor = "bottom"
-      )
-    )
+# Ahora fija esos límites en layout
+fig <- fig_raw %>%
+  plot_ly(
+    x = ~fecha,
+    y = ~valor,
+    split = ~variableEnergia,
+    frame = ~frame,
+    type = 'scatter',
+    mode = 'lines',
+    line = list(simplify = FALSE)
   ) %>%
-  animation_slider(hide = TRUE) %>%
-  animation_opts(frame = 100, transition = 0, redraw = FALSE)
+  layout(
+    xaxis = list(title = "Fecha", zeroline = FALSE, range = c(x_min, x_max)),
+    yaxis = list(title = "Porcentaje", zeroline = FALSE, range = c(y_min, y_max)),
+    tickformat = "%b %Y", # Formato bonito: abreviatura del mes y año
+    rangeslider = list(visible = TRUE)
+  ) %>%
+  animation_opts(
+    frame = 0,
+    transition = 0,
+    redraw = FALSE
+  ) %>%
+  animation_slider(
+  hide = FALSE
+  ) %>% 
+  animation_button(
+    x = 1, xanchor = "right", y = 0, yanchor = "bottom"
+  )
 
 fig
-
-```
-
-```{r eval=FALSE, include=FALSE}
-
-library(plotly)
-library(dplyr)
-library(lubridate)
-library(lazyeval)  # Necesario para accumulate_by
-
-# Función auxiliar para generar los frames
-accumulate_by <- function(dat, var) {
-  var <- lazyeval::f_eval(var, dat)
-  lvls <- plotly:::getLevels(var)
-  dats <- lapply(seq_along(lvls), function(x) {
-    cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
-  })
-  dplyr::bind_rows(dats)
-}
-
-# Preparar los datos
-df <- df_variables_despacho %>%
-  mutate(fecha = as.Date(fecha)) %>%
-  arrange(fecha)
-
-# Generar los frames para la animación
-df_anim <- df %>% accumulate_by(~fecha)
-
-# Crear la figura
-fig <- plot_ly()
-
-fig <- fig %>%
-  add_trace(data = df_anim,
-            x = ~fecha,
-            y = ~aportesPorcentaje,
-            name = "Aportes (%)",
-            type = 'scatter',
-            mode = 'lines',
-            frame = ~frame,
-            line = list(color = "#1f77b4")) %>%
-  add_trace(data = df_anim,
-            x = ~fecha,
-            y = ~embalsePorcentaje,
-            name = "Embalse (%)",
-            type = 'scatter',
-            mode = 'lines',
-            frame = ~frame,
-            line = list(color = "#2ca02c")) %>%
-  add_trace(data = df_anim,
-            x = ~fecha,
-            y = ~precioBolsaProm,
-            name = "Precio Bolsa",
-            type = 'scatter',
-            mode = 'lines',
-            frame = ~frame,
-            line = list(color = "#d62728"))
-
-# Configurar layout y controles
-fig <- fig %>%
-  layout(
-    title = "Comportamiento de Variables Energéticas",
-    xaxis = list(title = "Fecha"),
-    yaxis = list(title = "Valor"),
-    legend = list(x = 0.05, y = 1.1),
-    updatemenus = list(
-      list(
-        type = "buttons",
-        showactive = FALSE,
-        buttons = list(
-          list(label = "Play",
-               method = "animate",
-               args = list(NULL, list(frame = list(duration = 100, redraw = FALSE),
-                                      transition = list(duration = 0),
-                                      fromcurrent = TRUE))),
-          list(label = "Pause",
-               method = "animate",
-               args = list(NULL, list(mode = "immediate",
-                                      frame = list(duration = 0, redraw = FALSE),
-                                      transition = list(duration = 0))))
-        ),
-        x = 1, xanchor = "right", y = 0, yanchor = "bottom"
-      )
-    )
-  ) %>%
-  animation_slider(hide = TRUE) %>%
-  animation_opts(frame = 100, transition = 0, redraw = FALSE)
-
-fig
-
-
 ```
 

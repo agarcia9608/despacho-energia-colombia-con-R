@@ -1,0 +1,281 @@
+---
+title: "Despacho de Energía Eléctrica"
+subtitle: "Análisis Despacho de Energía Eléctrica en Colombia durante el año 2024"
+# date: "`r Sys.Date()`"
+author: "Elaborado por: Abraham García"
+output:
+  html_document: 
+    fig_height: 6
+    fig_width: 9
+    highlight: tango
+    keep_md: no #yes
+    number_sections: no
+    theme: paper #cerulean
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+  word_document:
+    toc: yes
+    toc_depth: '4'
+editor_options:
+  
+  chunk_output_type: console
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+
+# Librerias
+library(openxlsx)
+library(tidyverse)
+library(janitor)
+library(flextable)
+library(kableExtra)
+library(scales)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(forcats)
+
+# Lectura de los dataset
+df_variables_despacho <- read.xlsx("data/despacho_energia_colombia.xlsx",sheet = "VariablesDespacho")
+
+df_despacho_energia <- read.xlsx("data/despacho_energia_colombia.xlsx",sheet = "DespachoEnergia")
+
+```
+
+```{r}
+# Parametros de configuración
+
+colores_personalizados <- c(
+  "SOL" = "#FFD700",
+  "MENORES" = "#696969",
+  "LIQUIDOS" = "#e31a1c",
+  "GAS" = "#32CD32",
+  "CARBON" = "#FF8C00",
+  "AGUA" = "#00CED1"
+)
+```
+
+
+```{r}
+
+# Filtrar ambos conjuntos para que solo queden las fechas que son comunes a ambos dataset
+fechas_comunes <- intersect(df_variables_despacho$fecha, df_despacho_energia$fecha)
+
+df_variables_despacho <- df_variables_despacho[df_variables_despacho$fecha %in% fechas_comunes,]
+df_despacho_energia <- df_despacho_energia[df_despacho_energia$fecha %in% fechas_comunes,]
+
+# Formatear las columnas de fechas
+
+df_variables_despacho <- df_variables_despacho %>% 
+  mutate(fecha = as.Date(df_variables_despacho$fecha, origin = "1899-12-30"))
+
+df_despacho_energia <- df_despacho_energia %>% 
+  mutate(fecha = as.Date(df_despacho_energia$fecha, origin = "1899-12-30"),
+         anio = as.numeric(format(fecha, "%Y")),
+         mes = as.numeric(format(fecha,"%m")),
+         dia = as.numeric(format(fecha, "%d")))
+
+```
+
+```{r}
+# Para el análisis solo se conservan los registros del año 2024
+df_despacho_energia <- df_despacho_energia %>% 
+  filter(anio == 2024)
+
+df_variables_despacho <- df_variables_despacho %>% 
+  filter(anio == 2024)
+```
+
+Este informe analiza el comportamiento del despacho de energía eléctrica en Colombia durante el año 2024, un periodo marcado por un comportamiento crítico debido al fenómeno de *El Niño*.
+
+A continuación, se presentan varias gráficas que resumen el comportamiento de variables clave, como el despacho de energía eléctrica por fuente primaria y el precio de bolsa diario durante este periodo. 
+
+*Fuente*: Información pública de [XM](https://www.xm.com.co/)
+
+# Despacho por Tecnología
+
+En la siguiente gráfica se presenta el despacho diario de energía, desglosado por tipo de tecnología disponible en la matriz energética colombiana.
+
+```{r}
+# Construcción del gráfico en el orden correcto (de abajo hacia arriba)
+orden_correcto <- rev(names(colores_personalizados)) 
+
+g1_plotly <- plot_ly()
+
+for (combustible in orden_correcto) {
+  df_temp <- df_despacho_energia %>% filter(combustiblePrimario == combustible)
+  
+  g1_plotly <- g1_plotly %>%
+    add_trace(
+      data = df_temp,
+      x = ~fecha,
+      y = ~despachoDiario,
+      type = 'scatter',
+      mode = 'none',
+      stackgroup = 'one',
+      fillcolor = colores_personalizados[[combustible]],
+      name = combustible
+    )
+}
+
+# Personalización del layout
+g1_plotly <- g1_plotly %>%
+  layout(
+    title = list(
+      text = "Despacho Diario por Tecnología", 
+      x = 0.5,
+      xanchor = "center"
+    ),
+    xaxis = list(
+      rangeselector = list(
+        buttons = list(
+          list(count = 3, label = "3M", step = "month", stepmode = "backward"),
+          list(count = 6, label = "6M", step = "month", stepmode = "backward"),
+          list(count = 9, label = "9M", step = "month", stepmode = "backward"),
+          list(step = "all", label = "Todo")
+        )
+      ),
+      rangeslider = list(visible = TRUE),
+      title = "Fecha"
+    ),
+    yaxis = list(title = "GWh/día"),
+    hovermode = "x unified" 
+  )
+
+g1_plotly
+```
+
+
+# Generación Hídrica vs Térmica
+
+En la siguiente gráfica se muestra la evolución de la generación hídrica y térmica a lo largo del año. Aunque Colombia cuenta con una matriz energética predominantemente hidráulica en condiciones climáticas normales, durante este año se presentaron periodos en los que la generación térmica superó a la generación hídrica.
+
+**Nota**: Dar `play` o utilizar la barra para observar la evolución en el tiempo.
+
+```{r}
+
+df_aportes <- df_variables_despacho %>%
+  mutate(variableEnergia="Aportes", valor = aportes,
+         mes = as.numeric(month(fecha))) %>% 
+  select(fecha, anio, mes, dia,variableEnergia, valor)
+
+df_despacho_t <- df_despacho_energia %>% 
+  filter(combustiblePrimario %in% c("CARBON","GAS","LIQUIDOS")) %>% 
+  group_by(fecha, anio, mes, dia) %>% 
+  summarise(valor = sum(despachoDiario)) %>% 
+  mutate(variableEnergia="Despacho Térmico")
+
+df_despacho_h <- df_despacho_energia %>% 
+  filter(combustiblePrimario=="AGUA") %>% 
+  mutate(variableEnergia="Despacho Hídrico",
+         valor = despachoDiario) %>% 
+  select(-combustiblePrimario, despachoDiario) 
+
+df_despacho <- bind_rows( df_despacho_h, df_despacho_t)
+
+accumulate_by <- function(dat, var) {
+  var_expr <- rlang::enquo(var)
+  var_sym <- rlang::get_expr(var_expr)
+  
+  if (rlang::is_formula(var_sym)) {
+    var_sym <- rlang::f_rhs(var_sym)
+  }
+  
+  var_name <- rlang::as_name(var_sym)
+  
+  lvls <- sort(unique(dat[[var_name]]))
+  dats <- lapply(seq_along(lvls), function(x) {
+    cbind(dat[dat[[var_name]] %in% lvls[seq_len(x)], ], frame = lvls[[x]])
+  })
+  dplyr::bind_rows(dats)
+}
+
+fig_raw <- df_despacho %>%
+  accumulate_by(~fecha)
+
+# Obtener límites del eje x e y
+x_min <- min(fig_raw$fecha, na.rm = TRUE)
+x_max <- max(fig_raw$fecha, na.rm = TRUE)
+y_min <- min(fig_raw$valor, na.rm = TRUE)
+y_max <- max(fig_raw$valor, na.rm = TRUE)
+
+fig <- fig_raw %>%
+  plot_ly(
+    x = ~fecha,
+    y = ~valor,
+    split = ~variableEnergia,
+    frame = ~frame,
+    type = 'scatter',
+    mode = 'lines',
+    line = list(simplify = FALSE)
+  ) %>%
+  layout(
+    title = list(
+      text = "Despacho Diario Generación Hídrica vs Térmica ",
+      x = 0.5,  # Opcional: Centra el título (0 izquierda, 1 derecha, 0.5 centro)
+      xanchor = "center"  # Opcional: Ancla el centro
+    ),
+    xaxis = list(title = "Fecha", zeroline = FALSE, range = c(x_min, x_max)),
+    yaxis = list(title = "GWh/día", zeroline = FALSE, range = c(y_min, y_max)),
+    tickformat = "%b %Y", # Formato: abreviatura del mes y año
+    rangeslider = list(visible = TRUE)
+  ) %>%
+  animation_opts(
+    frame = 0,
+    transition = 0,
+    redraw = FALSE
+  ) %>%
+  animation_slider(
+  hide = FALSE
+  ) %>% 
+  animation_button(
+    x = 1, xanchor = "right", y = 0, yanchor = "bottom"
+  )
+
+fig
+```
+
+# Precio de Bolsa
+
+El siguiente gráfico muestra el comportamiento del precio de bolsa diario a lo largo del año. El pico registrado el 30 de septiembre se debe a la activación de una metodología especial de cálculo de precios, implementada ante las condiciones de riesgo de desabastecimiento ocasionadas por los bajos niveles de los embalses en ese momento.
+
+```{r}
+
+df_precio <- df_variables_despacho %>%
+  select(fecha,precioBolsaMin,precioBolsaProm,precioBolsaMax) %>% 
+  pivot_longer(
+  cols = c("precioBolsaMin","precioBolsaProm","precioBolsaMax"),
+  names_to = "variable",
+  values_to = "valor"
+)
+
+fig <- df_precio %>% 
+  mutate(variable = case_when(
+            variable == "precioBolsaMax" ~ "Precio Bolsa Máximo",
+            variable == "precioBolsaMin" ~ "Precio Bolsa Mínimo",
+            variable =="precioBolsaProm" ~ "Precio Bolsa Promedio"),
+  variable = factor(variable, levels = c("Precio Bolsa Máximo", "Precio Bolsa Promedio", "Precio Bolsa Mínimo"))
+  ) %>% 
+  ggplot(aes(x = fecha, y = valor, group = variable, color = variable))+
+    geom_line()+
+    ylab("COP/kWh")+
+    xlab("Fecha")+
+    labs(title = "Precio de Bolsa Diario")+
+    theme(plot.title = element_text(hjust=0.5))+
+    scale_color_manual(values = c("#3C6E71","#70AE6E","#BEEE62"))
+
+ggplotly(fig)
+```
+
+
