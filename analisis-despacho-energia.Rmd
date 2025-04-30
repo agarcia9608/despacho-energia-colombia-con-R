@@ -1,9 +1,8 @@
 ---
-# Configuración del documento
 title: "Despacho de Energía Eléctrica"
 subtitle: "Análisis Despacho de Energía Eléctrica en Colombia"
-# date: "`r Sys.Date()`"
-# author: "Abraham García"
+#date: "`r Sys.Date()`"
+author: "Abraham García"
 output:
   html_document: 
     fig_height: 7
@@ -11,7 +10,7 @@ output:
     highlight: tango
     keep_md: no #yes
     number_sections: no
-    theme: paper #cerulean
+    theme: cerulean # paper #cerulean
     toc: yes
     toc_depth: 4
     toc_float:
@@ -27,6 +26,7 @@ output:
 editor_options:
   
   chunk_output_type: console
+encoding: UTF-8
 ---
 
 Este informe analiza el comportamiento del despacho de energía eléctrica en Colombia durante los últimos siete años, abarcando el período comprendido entre abril de 2018 y abril de 2025.
@@ -34,7 +34,7 @@ A continuación, se presenta un análisis descriptivo de las siguientes variable
 
 - Demanda [GWh/día]
 - Aportes Hidrológicos [GWh/día]
-- Embalses [GWh]
+- Nivel de Embalses [GWh]
 - Despacho de energía eléctrica [GWh/día]
 - Precio de bolsa [COP/kWh]
 
@@ -47,7 +47,7 @@ knitr::opts_chunk$set(
 
 #⚡Recuerde instalar las librerias si no lo ha hecho antes.
 # con install.packages
-#install.packages("tidyverse")
+# install.packages("tidyverse")
 
 library(openxlsx)
 library(tidyverse)
@@ -70,7 +70,7 @@ df_despacho_energia <- read.xlsx("data/despacho_energia_colombia.xlsx",sheet = "
 ```{r}
 # Parametros de configuración
 
-colores_personalizados <- c(
+colores_tecnologia <- c(
   "SOL" = "#FFD700",
   "MENORES" = "#696969",
   "LIQUIDOS" = "#e31a1c",
@@ -78,6 +78,16 @@ colores_personalizados <- c(
   "CARBON" = "#FF8C00",
   "AGUA" = "#00CED1"
 )
+
+# Vector ordenado de días (comenzando por domingo)
+dias_ordenados <- c("domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado")
+
+
+#Función para Capitalizar un String
+capitalizar <- function(texto) {
+  texto_capitalizado <- paste0(toupper(substr(texto, 1, 1)), tolower(substr(texto, 2, nchar(texto))))
+  return (texto_capitalizado)
+}
 ```
 
 
@@ -97,14 +107,157 @@ df_variables_despacho <- df_variables_despacho %>%
 df_despacho_energia <- df_despacho_energia %>% 
   mutate(fecha = as.Date(df_despacho_energia$fecha, origin = "1899-12-30"),
          anio = as.numeric(format(fecha, "%Y")),
-         mes = as.numeric(format(fecha,"%m")),
-         dia = as.numeric(format(fecha, "%d")))
+         mes = capitalizar(format(fecha,"%B")),
+         mesNum = as.numeric(format(fecha,"%m")),
+         dia = as.numeric(format(fecha, "%d")),
+         diaSemana = format(fecha, "%A"),
+         combustiblePrimario = capitalizar(combustiblePrimario))
+
+df_variables_despacho <- df_variables_despacho %>% 
+  mutate(mes = capitalizar(format(fecha,"%B")),
+         mesNum = as.numeric(format(fecha,"%m")),
+         diaSemana = format(fecha, "%A"))
 
 ```
 
+A lo largo del presente informe se utilizarán dos conjuntos de datos. El primero contiene información del despacho diario clasificada por tipo de tecnología (Agua, Carbón, Gas, Líquidos, Menores y Sol), y será referido en adelante como `Dataset de Despacho`. El segundo conjunto incluye datos diarios de variables como la demanda, los aportes hidrológicos, el estado de los embalses y el precio de bolsa, y será referido como `Variables del Despacho`.
 
 ```{r}
-# 2. Preparar los datos
+# Obtener duplicados
+duplicados_1 <- df_despacho_energia %>% get_dupes()
+duplicados_2 <- df_variables_despacho %>% get_dupes()
+
+mensaje <- ""
+# Condicional: si hay duplicados, mostrar mensaje
+if (nrow(duplicados_1) > 0 | nrow(duplicados_2) > 0) {
+  
+  if (nrow(duplicados_1) > 0) {
+    mensaje <- "⚠️ ¡Hay duplicados en el dataset Despacho de Energía!"
+  } 
+  if (nrow(duplicados_2) > 0){
+    mensaje <- paste(mensaje,"⚠️ ¡Hay duplicados en el dataset Variables de Despacho!",sep="\n")
+    }
+
+} else {
+  mensaje <- "✅ No hay duplicados en los Dataset."
+}
+```
+
+**Nota**: `r mensaje`
+
+```{r}
+# Eliminar duplicados
+
+df_despacho_energia <- df_despacho_energia %>%
+  arrange(desc(fecha)) %>%
+  distinct(fecha, combustiblePrimario, .keep_all = TRUE)
+
+df_variables_despacho <- df_variables_despacho %>%
+  arrange(desc(fecha)) %>%
+  distinct(fecha, .keep_all = TRUE)
+
+```
+
+# Análisis Descriptivo
+
+A continuación, se presenta un análisis de frecuencia para cada una de las variables categóricas contenidas en los conjuntos de datos `Despacho de Energía` y `Variables del Despacho`.
+
+## Registros de despacho por Tipo de Tecnología
+```{r}
+df_despacho_energia %>%
+  count(combustiblePrimario) %>%
+  rename(
+    "Tecnologia" = combustiblePrimario,
+    "Cantidad de Registros" = n
+  ) %>%
+  flextable() %>%
+  theme_vanilla() %>%
+  fontsize(size = 10) %>%
+  set_caption(caption = "Cantidad de registros por tipo de tecnologia") %>%
+  color(part = "footer", color = "#666666") %>%
+  color(part = "header", color = "#FFFFFF") %>%
+  bg(part = "header", bg = "#2196F3") %>%
+  width(j = 1, width = 2) %>%
+  width(j = 2, width = 1.5) %>%
+  align(i = NULL, align = "center", part = "all")
+  
+```
+
+
+## Registros de despacho por año
+```{r}
+df_variables_despacho %>%
+  count(anio) %>%
+  mutate(anio = as.character(anio)) %>% 
+  rename(
+    "Año" = anio,
+    "Cantidad de Registros" = n
+  ) %>%
+  flextable() %>%
+  theme_vanilla() %>%
+  fontsize(size = 10) %>%
+  set_caption(caption = "Cantidad de registros por Año") %>%
+  color(part = "footer", color = "#666666") %>%
+  color(part = "header", color = "#FFFFFF") %>%
+  bg(part = "header", bg = "#2196F3") %>%
+  width(j = 1, width = 2) %>%
+  width(j = 2, width = 1.5) %>%
+  align(i = NULL, align = "center", part = "all")
+  
+```
+
+
+## Registros de despacho por día de la semana
+```{r}
+df_conteo_dias_semanana <- df_variables_despacho %>%
+  count(diaSemana) 
+
+df_conteo_dias_semanana$diaSemana <- factor(df_conteo_dias_semanana$diaSemana, levels = dias_ordenados)
+
+df_conteo_dias_semanana <- df_conteo_dias_semanana[order(df_conteo_dias_semanana$diaSemana),]
+  
+df_conteo_dias_semanana  %>% 
+  rename(
+    "Día de la Semana" = diaSemana,
+    "Cantidad de Registros" = n
+  ) %>%
+  flextable() %>%
+  theme_vanilla() %>%
+  fontsize(size = 10) %>%
+  set_caption(caption = "Cantidad de registros por día de la semana") %>%
+  color(part = "footer", color = "#666666") %>%
+  color(part = "header", color = "#FFFFFF") %>%
+  bg(part = "header", bg = "#2196F3") %>%
+  width(j = 1, width = 2) %>%
+  width(j = 2, width = 1.5) %>%
+  align(i = NULL, align = "center", part = "all")
+  
+```
+
+## Registros de despacho por día festivo
+```{r}
+df_variables_despacho %>%
+  count(festivo) %>%
+  rename(
+    "Festivo" = festivo,
+    "Cantidad de Registros" = n
+  ) %>%
+  flextable() %>%
+  theme_vanilla() %>%
+  fontsize(size = 10) %>%
+  set_caption(caption = "Cantidad de registros por día festivo") %>%
+  color(part = "footer", color = "#666666") %>%
+  color(part = "header", color = "#FFFFFF") %>%
+  bg(part = "header", bg = "#2196F3") %>%
+  width(j = 1, width = 2) %>%
+  width(j = 2, width = 1.5) %>%
+  align(i = NULL, align = "center", part = "all")
+  
+```
+
+
+```{r eval=FALSE, include=FALSE}
+# Preparación de los datos
 df_plot <- df_despacho_energia %>%
   filter(anio == 2024) %>%
   mutate(combustiblePrimario = fct_relevel(
@@ -113,7 +266,7 @@ df_plot <- df_despacho_energia %>%
   ))
 
 # 3. Construir el gráfico en el orden correcto (de abajo hacia arriba)
-orden_correcto <- rev(names(colores_personalizados))  # <- Invertir el orden para apilado correcto
+orden_correcto <- rev(names(colores_tecnologia))  # <- Invertir el orden para apilado correcto
 
 g1_plotly <- plot_ly()
 
@@ -128,7 +281,7 @@ for (combustible in orden_correcto) {
       type = 'scatter',
       mode = 'none',
       stackgroup = 'one',
-      fillcolor = colores_personalizados[[combustible]],
+      fillcolor = colores_tecnologia[[combustible]],
       name = combustible
     )
 }
@@ -157,80 +310,3 @@ g1_plotly
 
 
 ```
-
-
-
-# Gráfica Animada e interactiva
-```{r}
-
-df_aportes <- df_variables_despacho %>%
-  mutate(variableEnergia="aportesPorcentaje", valor = aportesPorcentaje) %>% 
-  select(fecha, anio, mes, dia, festivo, diaSemana,variableEnergia, valor)
-
-df_embalse <- df_variables_despacho %>%
-  mutate(variableEnergia="embalsePorcentaje", valor = embalsePorcentaje) %>% 
-  select(fecha, anio, mes, dia, festivo, diaSemana,variableEnergia, valor)
-
-df_hidrologia <- bind_rows(df_aportes, df_embalse)
-
-# Función accumulate_by corregida
-accumulate_by <- function(dat, var) {
-  var_expr <- rlang::enquo(var)
-  var_sym <- rlang::get_expr(var_expr)
-  
-  if (rlang::is_formula(var_sym)) {
-    var_sym <- rlang::f_rhs(var_sym)
-  }
-  
-  var_name <- rlang::as_name(var_sym)
-  
-  lvls <- sort(unique(dat[[var_name]]))
-  dats <- lapply(seq_along(lvls), function(x) {
-    cbind(dat[dat[[var_name]] %in% lvls[seq_len(x)], ], frame = lvls[[x]])
-  })
-  dplyr::bind_rows(dats)
-}
-
-# Construcción
-fig_raw <- df_hidrologia %>%
-  filter(anio == 2024, variableEnergia %in% c("aportesPorcentaje", "embalsePorcentaje")) %>%
-  accumulate_by(~fecha)
-
-# Obtener límites del eje x e y
-x_min <- min(fig_raw$fecha, na.rm = TRUE)
-x_max <- max(fig_raw$fecha, na.rm = TRUE)
-y_min <- min(fig_raw$valor, na.rm = TRUE)
-y_max <- max(fig_raw$valor, na.rm = TRUE)
-
-# Ahora fija esos límites en layout
-fig <- fig_raw %>%
-  plot_ly(
-    x = ~fecha,
-    y = ~valor,
-    split = ~variableEnergia,
-    frame = ~frame,
-    type = 'scatter',
-    mode = 'lines',
-    line = list(simplify = FALSE)
-  ) %>%
-  layout(
-    xaxis = list(title = "Fecha", zeroline = FALSE, range = c(x_min, x_max)),
-    yaxis = list(title = "Porcentaje", zeroline = FALSE, range = c(y_min, y_max)),
-    tickformat = "%b %Y", # Formato bonito: abreviatura del mes y año
-    rangeslider = list(visible = TRUE)
-  ) %>%
-  animation_opts(
-    frame = 0,
-    transition = 0,
-    redraw = FALSE
-  ) %>%
-  animation_slider(
-  hide = FALSE
-  ) %>% 
-  animation_button(
-    x = 1, xanchor = "right", y = 0, yanchor = "bottom"
-  )
-
-fig
-```
-
