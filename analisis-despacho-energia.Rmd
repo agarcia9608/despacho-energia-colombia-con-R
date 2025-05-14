@@ -31,7 +31,7 @@ encoding: UTF-8
 
 ```{r include=FALSE}
 # Selección del año a analizar
-v_year <- 2023
+v_year <- 2024
 ```
 
 
