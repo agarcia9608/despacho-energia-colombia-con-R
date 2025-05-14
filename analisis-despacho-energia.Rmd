@@ -1,7 +1,7 @@
 ---
 title: "Despacho de Energía Eléctrica"
 subtitle: "Análisis Despacho de Energía Eléctrica en Colombia"
-#date: "`r Sys.Date()`"
+date: "`r Sys.Date()`"
 author: "Abraham García"
 output:
   html_document: 
@@ -29,8 +29,13 @@ editor_options:
 encoding: UTF-8
 ---
 
-Este informe analiza el comportamiento del despacho de energía eléctrica en Colombia durante los últimos siete años, abarcando el período comprendido entre abril de 2018 y abril de 2025.
-A continuación, se presenta un análisis descriptivo de las siguientes variables:
+```{r include=FALSE}
+# Selección del año a analizar
+v_year <- 2023
+```
+
+
+Este informe analiza el comportamiento del despacho de energía eléctrica en Colombia durante el año **`r v_year`**. A continuación, se presenta un análisis descriptivo de las siguientes variables:
 
 - Demanda [GWh/día]
 - Aportes Hidrológicos [GWh/día]
@@ -45,10 +50,6 @@ knitr::opts_chunk$set(
 	warning = FALSE
 )
 
-#⚡Recuerde instalar las librerias si no lo ha hecho antes.
-# con install.packages
-# install.packages("tidyverse")
-
 library(openxlsx)
 library(tidyverse)
 library(janitor)
@@ -59,6 +60,7 @@ library(ggplot2)
 library(plotly)
 library(dplyr)
 library(forcats)
+library(nortest)
 
 # Lectura de los dataset
 df_variables_despacho <- read.xlsx("data/despacho_energia_colombia.xlsx",sheet = "VariablesDespacho")
@@ -71,12 +73,12 @@ df_despacho_energia <- read.xlsx("data/despacho_energia_colombia.xlsx",sheet = "
 # Parametros de configuración
 
 colores_tecnologia <- c(
-  "SOL" = "#FFD700",
-  "MENORES" = "#696969",
-  "LIQUIDOS" = "#e31a1c",
-  "GAS" = "#32CD32",
-  "CARBON" = "#FF8C00",
-  "AGUA" = "#00CED1"
+  "Sol" = "#FFD700",
+  "Menores" = "#696969",
+  "Liquidos" = "#e31a1c",
+  "Gas" = "#32CD32",
+  "Carbon" = "#FF8C00",
+  "Agua" = "#00CED1"
 )
 
 # Vector ordenado de días (comenzando por domingo)
@@ -120,6 +122,17 @@ df_variables_despacho <- df_variables_despacho %>%
 
 ```
 
+```{r}
+# Filtro para el año seleccionado
+df_variables_despacho <- df_variables_despacho %>% 
+  filter(anio == v_year)
+
+df_despacho_energia <- df_despacho_energia %>% 
+  filter(anio == v_year)
+
+```
+
+
 A lo largo del presente informe se utilizarán dos conjuntos de datos. El primero contiene información del despacho diario clasificada por tipo de tecnología (Agua, Carbón, Gas, Líquidos, Menores y Sol), y será referido en adelante como `Dataset de Despacho`. El segundo conjunto incluye datos diarios de variables como la demanda, los aportes hidrológicos, el estado de los embalses y el precio de bolsa, y será referido como `Variables del Despacho`.
 
 ```{r}
@@ -158,11 +171,27 @@ df_variables_despacho <- df_variables_despacho %>%
 
 ```
 
+```{r eval=FALSE, include=FALSE}
+# Información de Datasets 
+summary(df_variables_despacho)
+
+summary(df_despacho_energia)
+
+sapply(df_variables_despacho, class)
+
+colnames(df_variables_despacho)
+
+```
+
+
 # Análisis Descriptivo
 
 A continuación, se presenta un análisis de frecuencia para cada una de las variables categóricas contenidas en los conjuntos de datos `Despacho de Energía` y `Variables del Despacho`.
 
-## Registros de despacho por Tipo de Tecnología
+## Registros de despacho por tipo de tecnología
+
+En este caso, se espera que cada categoría contenga un total de registros equivalente al número de días del año `r v_year`, es decir, `r df_despacho_energia %>% count(combustiblePrimario) %>% select(n) %>% arrange(-n) %>%slice(1)` días.
+
 ```{r}
 df_despacho_energia %>%
   count(combustiblePrimario) %>%
@@ -184,30 +213,32 @@ df_despacho_energia %>%
 ```
 
 
-## Registros de despacho por año
 ```{r}
-df_variables_despacho %>%
-  count(anio) %>%
-  mutate(anio = as.character(anio)) %>% 
-  rename(
-    "Año" = anio,
-    "Cantidad de Registros" = n
-  ) %>%
-  flextable() %>%
-  theme_vanilla() %>%
-  fontsize(size = 10) %>%
-  set_caption(caption = "Cantidad de registros por Año") %>%
-  color(part = "footer", color = "#666666") %>%
-  color(part = "header", color = "#FFFFFF") %>%
-  bg(part = "header", bg = "#2196F3") %>%
-  width(j = 1, width = 2) %>%
-  width(j = 2, width = 1.5) %>%
-  align(i = NULL, align = "center", part = "all")
-  
+
+# Gráfica de Frecuencia
+df_despacho_energia %>% 
+  count(combustiblePrimario) %>% 
+  ggplot(aes(x = combustiblePrimario, y= n, fill = combustiblePrimario))+
+  geom_col(position = "dodge")+
+  geom_text(aes(x = combustiblePrimario, y = n,label = n, group = combustiblePrimario),
+              position = position_dodge(width = .9),vjust = + 0.5, size = 3.5, hjust= -0.5)+
+  labs(x = "Combustible primario", y = "Frecuencia",
+         title = "Registros por Tipo de Tecnología",
+       subtitle = paste("Cantidad de registros por tipo de tecnología"),
+       caption = "Fuente: Datos públicos de XM") +
+  theme(axis.text.y = element_text(size = 11))+
+  theme(axis.text.x = element_text(size = 11, angle=45)) +
+  theme(legend.position = "None") +
+  scale_fill_manual(values = colores_tecnologia) +
+  coord_flip()
+
 ```
 
 
 ## Registros de despacho por día de la semana
+
+En cuanto a los días de la semana, la cantidad de registros debería coincidir con la frecuencia con la que cada día ocurre a lo largo del año. Por lo general, cada día de la semana aparece entre 52 y 53 veces en un año, dependiendo de si el año es común o bisiesto.
+
 ```{r}
 df_conteo_dias_semanana <- df_variables_despacho %>%
   count(diaSemana) 
@@ -234,10 +265,36 @@ df_conteo_dias_semanana  %>%
   
 ```
 
-## Registros de despacho por día festivo
 ```{r}
-df_variables_despacho %>%
-  count(festivo) %>%
+# Gráfica de Frecuencia
+df_conteo_dias_semanana %>% 
+    arrange(desc(diaSemana)) %>% 
+  ggplot(aes(x = diaSemana, y= n, fill = diaSemana))+
+  geom_col(position = "dodge")+
+  geom_text(aes(x = diaSemana, y = n,label = n, group = diaSemana),
+              position = position_dodge(width = .9),vjust = -0.5, size = 3.5, hjust= 0)+
+  labs(x = "Día de la semana", y = "Frecuencia",
+         title = "Registros por Día de la semana",
+       subtitle = paste("Cantidad de registros por día de la semana"),
+       caption = "Fuente: Datos públicos de XM") +
+  theme(axis.text.y = element_text(size = 11))+
+  theme(axis.text.x = element_text(size = 11, angle=45)) +
+  theme(legend.position = "None") 
+
+```
+
+
+## Registros de despacho por día festivo
+
+```{r}
+df_regitros_tipo_dia <- df_variables_despacho %>%
+  count(festivo)
+```
+
+En la tabla de registros y en la gráfica de frecuencia se observa que, para el año `r v_year`, hubo un total de `r (df_regitros_tipo_dia %>% filter(festivo=="Normal"))[2]` días normales y `r (df_regitros_tipo_dia %>% filter(festivo=="Festivo"))[2]` días festivos.
+
+```{r}
+df_regitros_tipo_dia %>%
   rename(
     "Festivo" = festivo,
     "Cantidad de Registros" = n
@@ -255,23 +312,143 @@ df_variables_despacho %>%
   
 ```
 
+```{r}
 
-```{r eval=FALSE, include=FALSE}
-# Preparación de los datos
-df_plot <- df_despacho_energia %>%
-  filter(anio == 2024) %>%
-  mutate(combustiblePrimario = fct_relevel(
-    combustiblePrimario,
-    "SOL", "MENORES", "LIQUIDOS", "GAS", "CARBON", "AGUA"
-  ))
+# Gráfica de Frecuencia
+ df_regitros_tipo_dia %>%
+  ggplot(aes(x = festivo, y= n, fill = festivo))+
+  geom_col(position = "dodge")+
+  geom_text(aes(x = festivo, y = n,label = n, group = festivo),
+              position = position_dodge(width = .9),vjust = -0.5, size = 3.5, hjust= 0)+
+  labs(x = "Tipo de día", y = "Frecuencia",
+         title = "Registros por Tipo de día",
+       subtitle = paste("Cantidad de registros por tipo de día"),
+       caption = "Fuente: Datos públicos de XM") +
+  theme(axis.text.y = element_text(size = 11))+
+  theme(axis.text.x = element_text(size = 11, angle=45)) +
+  theme(legend.position = "None") 
 
-# 3. Construir el gráfico en el orden correcto (de abajo hacia arriba)
-orden_correcto <- rev(names(colores_tecnologia))  # <- Invertir el orden para apilado correcto
+```
+
+
+## Demanda promedio diaria por día de la semana y tipo de día
+```{r}
+df_demanda_dias_semanana <- df_variables_despacho %>% 
+  group_by(diaSemana, festivo) %>% 
+  summarise(demandaDiaria=round(mean(demandaDiaria),2)) 
+
+df_demanda_dias_semanana$diaSemana <- factor(df_demanda_dias_semanana$diaSemana, levels = dias_ordenados)
+
+df_demanda_dias_semanana <- df_demanda_dias_semanana[order(df_demanda_dias_semanana$diaSemana),]
+
+df_demanda_dias_semanana_t <- df_demanda_dias_semanana %>% 
+  rename("Día semana" = diaSemana) %>% 
+  pivot_wider(names_from = festivo, values_from = demandaDiaria)
+
+```
+
+En relación con la demanda, se observa que en promedio el día festivo con mayor valor corresponde al `r (df_demanda_dias_semanana_t %>% select(Festivo)%>% arrange(-Festivo))[1,1]` y el de menor valor al `r (df_demanda_dias_semanana_t %>% select(Festivo)%>% arrange(Festivo))[1,1]`. En contraste, para los días normales, el `r (df_demanda_dias_semanana_t %>% select(Normal)%>% arrange(-Normal))[1,1]` presenta el mayor promedio de demanda, mientras que el `r (df_demanda_dias_semanana_t %>% select(Normal)%>% arrange(Normal))[1,1]` registra el menor.
+
+
+```{r}
+
+ df_demanda_dias_semanana_t %>%  
+  flextable() %>% 
+  theme_vanilla() %>%
+    color( part = "footer", color = "#666666") %>%
+    color( part = "header", color = "#FFFFFF") %>%
+    bg( part = "header", bg = "#2196F3") %>%
+    fontsize(size = 10) %>%
+    font(fontname = 'Calibri') %>%
+    # Ajustes de ancho y tipo de alineación de las columnas
+    width(j=1, width = 1.5) %>% width(j=c(2:3), width = 1) %>%
+    align(i = NULL, j = c(2:3), align = "right", part = "all") %>%
+    set_caption(caption = "Promedio Demanda por día de la semana y tipo de día")
+```
+
+
+```{r}
+# Gráfica de demanda
+df_demanda_dias_semanana %>%
+  ggplot(aes(x = diaSemana, y= demandaDiaria, fill = festivo))+
+  geom_col(position = "dodge")+
+  geom_text(aes(x = diaSemana, y = demandaDiaria,label = demandaDiaria, group = festivo),
+              position = position_dodge(width = .9),vjust = -0.5, size = 3.5, hjust= 0.5)+
+  labs(x = "Día de la semana", y = "Demanda [GWh/día]",
+         title = "Demanda promedio diaria",
+       subtitle = paste("Valor de demanda promedio diaria por tipo de día"),
+       fill = "Tipo día",
+       caption = "Fuente: Datos públicos de XM") +
+  theme(axis.text.y = element_text(size = 11))+
+  theme(axis.text.x = element_text(size = 11, angle=45))
+```
+
+
+
+## Generación promedio diaria por día de la semana y tipo de tecnología
+
+```{r}
+df_gen_dias_semana <- df_despacho_energia %>% 
+  group_by(diaSemana, combustiblePrimario) %>% 
+  summarise(generacion=round(mean(despachoDiario),2)) 
+
+df_gen_dias_semana$diaSemana <- factor(df_gen_dias_semana$diaSemana, levels = dias_ordenados)
+
+df_gen_dias_semana <- df_gen_dias_semana[order(df_gen_dias_semana$diaSemana),]
+
+v_max_gen <- df_gen_dias_semana %>% arrange(desc(generacion)) %>% head(1)
+```
+
+A continuación, se presenta la generación promedio diaria de energía en Colombia para el año `r v_year`, desagregada por día de la semana y tipo de tecnología utilizada en el despacho eléctrico. Esta información permite identificar patrones de comportamiento en la participación de distintas fuentes como agua, gas, carbón, líquidos, fuentes menores y solar a lo largo de la semana. En estos elementos destaca la significativa contribución de los recursos con *`r v_max_gen[2]`* como fuente primaria de energía, alcanzando promedios de generación de hasta `r v_max_gen[3]` GWh/día.
+
+
+```{r}
+
+df_gen_dias_semana %>% 
+  rename("Día semana" = diaSemana) %>% 
+  pivot_wider(names_from = combustiblePrimario, values_from = generacion) %>% 
+  flextable() %>% 
+  theme_vanilla() %>%
+    color( part = "footer", color = "#666666") %>%
+    color( part = "header", color = "#FFFFFF") %>%
+    bg( part = "header", bg = "#2196F3") %>%
+    fontsize(size = 10) %>%
+    font(fontname = 'Calibri') %>%
+    # Ajustes de ancho y tipo de alineación de las columnas
+    width(j=1, width = 1.5) %>% width(j=c(2:3), width = 1) %>%
+    align(i = NULL, j = c(2:3), align = "right", part = "all") %>%
+    set_caption(caption = "Promedio Generación por día de la semana y tipo de tecnología")
+```
+
+
+```{r}
+# Gráfica de generación
+df_gen_dias_semana %>%
+  ggplot(aes(x = diaSemana, y= generacion, fill = combustiblePrimario))+
+  geom_col(position = "stack")+
+  labs(x = "Día de la semana", y = "[GWh/día]",
+         title = "Generación Promedio Diaria",
+       subtitle = paste("Promedio Generación por día de la semana y tipo de tecnología"),
+       fill = "Tipo de Tecnología",
+       caption = "Fuente: Datos públicos de XM") +
+  theme(axis.text.y = element_text(size = 11))+
+  theme(axis.text.x = element_text(size = 11, angle=45))+
+  scale_fill_manual(values = colores_tecnologia) 
+```
+
+
+## Despacho por tecnología
+
+En la siguiente gráfica se presenta el despacho diario de energía, desglosado por tipo de tecnología disponible en la matriz energética colombiana.
+
+```{r}
+# Construcción del gráfico en el orden correcto (de abajo hacia arriba)
+orden_correcto <- rev(names(colores_tecnologia)) 
 
 g1_plotly <- plot_ly()
 
 for (combustible in orden_correcto) {
-  df_temp <- df_plot %>% filter(combustiblePrimario == combustible)
+  df_temp <- df_despacho_energia %>% filter(combustiblePrimario == combustible)
   
   g1_plotly <- g1_plotly %>%
     add_trace(
@@ -286,9 +463,14 @@ for (combustible in orden_correcto) {
     )
 }
 
-# 4. Personalizar layout
+# Personalización del layout
 g1_plotly <- g1_plotly %>%
   layout(
+    title = list(
+      text = "Despacho Diario por Tecnología", 
+      x = 0.5,
+      xanchor = "center"
+    ),
     xaxis = list(
       rangeselector = list(
         buttons = list(
@@ -301,12 +483,326 @@ g1_plotly <- g1_plotly %>%
       rangeslider = list(visible = TRUE),
       title = "Fecha"
     ),
-    yaxis = list(title = "Despacho Diario (MW)"),
-    hovermode = "x unified"  # Opcional: para que todos los datos salgan alineados en el hover
+    yaxis = list(title = "GWh/día"),
+    hovermode = "x unified" 
   )
 
-# 5. Mostrar gráfico
 g1_plotly
+```
+
+
+## Generación hídrica versús térmica
+
+En la siguiente gráfica se muestra la evolución de la generación hídrica y térmica a lo largo del año `r v_year`. 
+
+**Nota**: Dar `play` o utilizar la barra para observar la evolución en el tiempo.
+
+```{r }
+
+df_despacho_t <- df_despacho_energia %>% 
+  filter(combustiblePrimario %in% c("Carbon","Gas","Liquidos")) %>% 
+  group_by(fecha, anio, mes, dia) %>% 
+  summarise(valor = sum(despachoDiario)) %>% 
+  mutate(variableEnergia="Despacho Térmico")
+
+df_despacho_h <- df_despacho_energia %>% 
+  filter(combustiblePrimario=="Agua") %>% 
+  mutate(variableEnergia="Despacho Hídrico",
+         valor = despachoDiario) %>% 
+  select(-combustiblePrimario, despachoDiario) 
+
+df_despacho <- bind_rows( df_despacho_h, df_despacho_t)
+
+accumulate_by <- function(dat, var) {
+  var_expr <- rlang::enquo(var)
+  var_sym <- rlang::get_expr(var_expr)
+  
+  if (rlang::is_formula(var_sym)) {
+    var_sym <- rlang::f_rhs(var_sym)
+  }
+  
+  var_name <- rlang::as_name(var_sym)
+  
+  lvls <- sort(unique(dat[[var_name]]))
+  dats <- lapply(seq_along(lvls), function(x) {
+    cbind(dat[dat[[var_name]] %in% lvls[seq_len(x)], ], frame = lvls[[x]])
+  })
+  dplyr::bind_rows(dats)
+}
+
+fig_raw <- df_despacho %>%
+  accumulate_by(~fecha)
+
+# Obtener límites del eje x e y
+x_min <- min(fig_raw$fecha, na.rm = TRUE)
+x_max <- max(fig_raw$fecha, na.rm = TRUE)
+y_min <- min(fig_raw$valor, na.rm = TRUE)
+y_max <- max(fig_raw$valor, na.rm = TRUE)
+
+fig <- fig_raw %>%
+  plot_ly(
+    x = ~fecha,
+    y = ~valor,
+    split = ~variableEnergia,
+    frame = ~frame,
+    type = 'scatter',
+    mode = 'lines',
+    line = list(simplify = FALSE)
+  ) %>%
+  layout(
+    title = list(
+      text = "Despacho Diario Generación Hídrica vs Térmica ",
+      x = 0.5,  # Opcional: Centra el título (0 izquierda, 1 derecha, 0.5 centro)
+      xanchor = "center"  # Opcional: Ancla el centro
+    ),
+    xaxis = list(title = "Fecha", zeroline = FALSE, range = c(x_min, x_max)),
+    yaxis = list(title = "GWh/día", zeroline = FALSE, range = c(y_min, y_max)),
+    tickformat = "%b %Y", # Formato: abreviatura del mes y año
+    rangeslider = list(visible = TRUE)
+  ) %>%
+  animation_opts(
+    frame = 0,
+    transition = 0,
+    redraw = FALSE
+  ) %>%
+  animation_slider(
+  hide = FALSE
+  ) %>% 
+  animation_button(
+    x = 1, xanchor = "right", y = 0, yanchor = "bottom"
+  )
+
+fig
+```
+
+## Precio de bolsa
+
+El siguiente gráfico muestra la evolución del precio de bolsa diario a lo largo del año. Se observa un comportamiento con valores mínimos que descienden hasta `r (df_variables_despacho %>% select(precioBolsaMin)%>%arrange(precioBolsaMin) %>% head(1))` COP/kWh y picos máximos que alcanzan los `r (df_variables_despacho %>% select(precioBolsaMax) %>%  arrange(-precioBolsaMax) %>% head(1))` COP/kWh.
+
+```{r}
+
+df_precio <- df_variables_despacho %>%
+  select(fecha,precioBolsaMin,precioBolsaProm,precioBolsaMax) %>% 
+  pivot_longer(
+  cols = c("precioBolsaMin","precioBolsaProm","precioBolsaMax"),
+  names_to = "variable",
+  values_to = "valor"
+)
+
+fig <- df_precio %>% 
+  mutate(variable = case_when(
+            variable == "precioBolsaMax" ~ "Precio Bolsa Máximo",
+            variable == "precioBolsaMin" ~ "Precio Bolsa Mínimo",
+            variable =="precioBolsaProm" ~ "Precio Bolsa Promedio"),
+  variable = factor(variable, levels = c("Precio Bolsa Máximo", "Precio Bolsa Promedio", "Precio Bolsa Mínimo"))
+  ) %>% 
+  ggplot(aes(x = fecha, y = valor, group = variable, color = variable))+
+    geom_line()+
+    ylab("COP/kWh")+
+    xlab("Fecha")+
+    labs(title = "Precio de Bolsa Diario")+
+    theme(plot.title = element_text(hjust=0.5))+
+    scale_color_manual(values = c("#3C6E71","#70AE6E","#BEEE62"))
+
+ggplotly(fig)
+```
+
+
+# Más allá de lo Descriptivo
+
+A continuación, se presenta un análisis de la demanda promedio diaria del Sistema Interconectado Nacional, con el objetivo de caracterizar su comportamiento a lo largo del tiempo durante el año `r v_year`.
+
+## Tabla de medidas resumen para la demanda diaria
+
+En la siguiente tabla se presentan las principales medidas resumen de la demanda diaria, incluyendo estadísticos como la media, mediana, desviación estándar, cuartiles y el rango intercuartílico, que permiten tener una visión general del comportamiento central y la dispersión de la variable.
+```{r}
+
+tabla_medidas <- df_variables_despacho %>%
+  group_by(diaSemana) %>% 
+  summarise(
+    Cuenta = n(),
+    Promedio = mean(demandaDiaria),
+    Desvest = sd(demandaDiaria),
+    Varianza = var(demandaDiaria),
+    CV = sd(demandaDiaria) / mean(demandaDiaria),
+    Q1 = quantile(demandaDiaria, 0.25),
+    Mediana = median(demandaDiaria),
+    Q3 = quantile(demandaDiaria, 0.75),
+    RIC = Q3 - Q1,
+    Ext_inf = Q1 - 1.5 * RIC,
+    Ext_sup = Q3 + 1.5 * RIC
+  ) %>% 
+  mutate(diaSemana = factor(diaSemana, levels = dias_ordenados)) %>%
+  arrange(diaSemana)
+
+  tabla_medidas  %>%
+  flextable() %>% 
+  theme_vanilla() %>%
+    color( part = "footer", color = "#666666") %>%
+    color( part = "header", color = "#FFFFFF") %>%
+    bg( part = "header", bg = "#2196F3") %>%
+    fontsize(size = 10) %>%
+    font(fontname = 'Calibri') %>%
+    # Ajustes de ancho y tipo de alineación de las columnas
+    width(j=1, width = 1.5) %>% width(j=c(2:3), width = 1) %>%
+    align(i = NULL, j = c(2:3), align = "right", part = "all") %>%
+    set_caption(caption = "Tabla de medidas resumen para la Demanda Diaria")
+```
+
+A partir de la tabla de medidas resumen se observa que el día con mayor demanda promedio es el `r (tabla_medidas %>% select(diaSemana, Promedio) %>% arrange(-Promedio))[1,1]`, alcanzando un valor de `r round((tabla_medidas %>% select(diaSemana, Promedio) %>% arrange(-Promedio))[1,2],2)` GWh/día. En contraste, el `r (tabla_medidas %>% select(diaSemana, Desvest, Varianza) %>% arrange(-Desvest))[1,1]` presenta la mayor variabilidad en la demanda diaria, con una desviación estándar de `r round((tabla_medidas %>% select(diaSemana, Desvest, Varianza) %>% arrange(-Desvest))[1,2],2)` y una varianza de `r round((tabla_medidas %>% select(diaSemana, Desvest, Varianza) %>% arrange(-Desvest))[1,3],2)`.
+
+
+## Tabla de frecuencias
+
+La siguiente tabla muestra la distribución de frecuencias de la demanda diaria, agrupando los datos en intervalos para facilitar la identificación de patrones, concentraciones y posibles asimetrías en la distribución.
+
+```{r}
+df_variables_despacho %>%
+  mutate(demandaDiaria = round(demandaDiaria)) %>% 
+  count(demandaDiaria) %>% 
+  filter(demandaDiaria > 100) %>% 
+  mutate(FREC_REL = (n/sum(n)), 
+         FREC_ACU_ABS = cumsum(n),
+         FREC_ACUM = cumsum(FREC_REL),
+         FREC_REL = percent(FREC_REL, accuracy = 0.1),
+         FREC_ACUM = percent(FREC_ACUM,accuracy = 0.01), 
+         FREC_ABS = n) %>% 
+  rename("Demanda" = demandaDiaria,
+         "Frecuencia" = n,
+          "Frecuencia Relativa"=FREC_REL,
+         "Frecuencia Acumulada Absoluta"=FREC_ACU_ABS,
+         "Frecuencia Acumulada"=FREC_ACUM,
+         "Frecuencia Absoluta"=FREC_ABS
+         ) %>% 
+  flextable() %>% 
+  theme_vanilla() %>%
+    color( part = "footer", color = "#666666") %>%
+    color( part = "header", color = "#FFFFFF") %>%
+    bg( part = "header", bg = "#2196F3") %>%
+    fontsize(size = 10) %>%
+    font(fontname = 'Calibri') %>%
+    # Ajustes de ancho y tipo de alineación de las columnas
+    width(j=1, width = 1.5) %>% width(j=c(2:3), width = 1) %>%
+    align(i = NULL, j = c(2:3), align = "right", part = "all") %>%
+    set_caption(caption = "Tabla de Frecuencia para la Demanda Diaria")
+```
+
+## Distribución de los datos de demanda diaria
+
+### Gráfica de distribución empírica
+
+En la siguiente gráfica se presenta la distribución empírica acumulada de la demanda diaria, lo que permite visualizar cómo se acumulan los valores a lo largo del rango observado, facilitando comparaciones con distribuciones teóricas.
+
+```{r}
+df_variables_despacho %>% 
+  count(demandaDiaria) %>% 
+  rename(Frecuencia = n) %>% 
+  mutate(Frec_relativa = Frecuencia/ sum(Frecuencia)) %>% 
+  mutate(Frecuencia_relativa_acum = cumsum(Frec_relativa)) %>% 
+  select(demandaDiaria, Frecuencia_relativa_acum) %>% 
+  ggplot(aes(x = demandaDiaria, y = Frecuencia_relativa_acum))+
+  geom_point()+
+  geom_line() +
+  ylab("Frecuencia relativa Acumulada") +
+  xlab("Demanda diaria [GWh/día]") +
+  labs( title = "Gráfica de distribución empírica")
+```
+
+
+### Histograma
+
+El siguiente histograma muestra la frecuencia de ocurrencia de distintos rangos de valores de la demanda diaria. Esta visualización permite identificar la forma de la distribución, así como detectar sesgos, asimetrías o presencia de valores atípicos.
+
+```{r}
+df_variables_despacho %>% 
+ggplot( aes(x = demandaDiaria)) +
+  geom_histogram(
+    bins = 20,                 # Número de bins (intervalos) para el histograma
+    fill = "skyblue",          # Color de las barras del histograma
+    color = "black",           # Color del borde de las barras del histograma
+    alpha = 0.7               # Transparencia de las barras
+  ) +
+  labs(
+    title = "Histograma de Datos",   # Título del histograma
+    x = "Valores",                    # Etiqueta del eje x
+    y = "Frecuencia"                  # Etiqueta del eje y
+  ) +
+  theme_minimal()
+```
+
+### Gráfico de densidad
+
+El gráfico de densidad que se muestra a continuación representa una estimación suave de la distribución de la demanda diaria, proporcionando una alternativa al histograma para observar la forma y concentración de los datos.
+
+```{r}
+df_variables_despacho %>% 
+ggplot( aes(x = demandaDiaria)) +
+  geom_density(
+    fill = "skyblue",       # Color de relleno de la curva de densidad
+    alpha = 0.5,            # Transparencia de la curva de densidad
+    color = "blue",         # Color del borde de la curva de densidad
+    linetype = "dashed",    # Tipo de línea de la curva de densidad
+    size = 1.2,             # Grosor de la línea de la curva de densidad
+    kernel = "gaussian",    # Método de estimación de densidad (predeterminado)
+    adjust = 1,             # Ajuste de suavidad de la curva de densidad
+    bw = "nrd"              # Método de selección de ancho de banda
+  ) +
+  labs(
+    title = "Distribución de Densidad",  # Título del gráfico
+    x = "Valores",                       # Etiqueta del eje x
+    y = "Densidad"                      # Etiqueta del eje y
+  ) +
+  theme_minimal() 
+```
+
+
+
+## Comprobación de normalidad
+
+La siguiente sección incluye pruebas para evaluar si la distribución de la demanda diaria se ajusta a una distribución normal, lo cual es fundamental para la aplicación de ciertos métodos estadísticos.
+
+### Prueba de normalidad de Lilliefors
+```{r}
+resultados_lillie <- df_variables_despacho %>% 
+  select(demandaDiaria) %>% 
+  pull() %>%
+  lillie.test()
+
+```
+
+El valor p de la prueba de normalidad de Lilliefors es `r resultados_lillie$p.value`, lo que indica que `r ifelse(resultados_lillie$p.value < 0.05, "NO", "SÍ")` se puede asumir normalidad.
+
+### Prueba de normalidad de Shapiro-Wilk
+```{r}
+shapiro_result <- shapiro.test(df_variables_despacho$demandaDiaria)
+
+```
+
+El valor p de la prueba de normalidad de Shapiro-Wilk es `r shapiro_result$p.value`, lo que indica que `r ifelse(shapiro_result$p.value < 0.05, "NO", "SÍ")` se puede asumir normalidad.
+
+
+## Cálculo de intervalo de confianza
+
+A continuación, se presenta el cálculo del intervalo de confianza para la media de la demanda diaria, proporcionando una estimación del rango dentro del cual se espera que se encuentre el valor promedio verdadero con un nivel de confianza especificado.
+
+```{r }
+festivo_normal <- df_variables_despacho %>% filter(festivo == "Normal") %>% pull(demandaDiaria)
+festivo_festivo <- df_variables_despacho %>% filter(festivo == "Festivo") %>% pull(demandaDiaria)
+
+ic_normal <- t.test(festivo_normal)$conf.int
+ic_festivo <- t.test(festivo_festivo)$conf.int
 
 
 ```
+
+El intervalo de confianza al 95% para la demanda diaria en días normales es de `r round(ic_normal[1], 2)` a `r round(ic_normal[2], 2)` GWh/día.
+
+En días festivos, es de `r round(ic_festivo[1], 2)` a `r round(ic_festivo[2], 2)` GWh/día.
+
+
+# Conclusiones 
+	
+- En este informe se automatiza el análisis descriptivo y algunos aspectos de inferencia estadística sobre los datos del despacho eléctrico en Colombia. El análisis de la demanda y generación de energía en el Sistema Interconectado Nacional permite identificar comportamientos relevantes a lo largo de los días de la semana y los meses del año. Se evidencia los días que presentan los mayores niveles de generación y demanda promedio diaria, como también los días con una disminución significativa en estas variables, lo que sugiere una estrecha relación con los ciclos de actividad económica. Asimismo, se destaca el predominio de las tecnologías hídricas en la matriz energética del país, consolidándolas como la principal fuente de generación eléctrica.
+	
+- Este ejercicio resalta la utilidad de automatizar informes con RMarkdown, permitiendo generar reportes reproducibles y eficientes para análisis periódicos o regulatorios. Por otra parte, a lo largo del documento se aplicaron herramientas fundamentales de análisis estadístico descriptivo e inferencial que resultaron clave para interpretar el comportamiento de la demanda energética. La construcción de medidas resumen, la exploración de distribuciones mediante gráficos y pruebas de normalidad, así como el cálculo de intervalos de confianza, facilitaron una comprensión más profunda de la variabilidad y tendencia central de los datos. Estos procedimientos no solo fortalecen la interpretación cuantitativa de fenómenos energéticos, sino que también demuestran la importancia de la estadística como una disciplina esencial para el análisis riguroso y la toma de decisiones informadas.
+	
